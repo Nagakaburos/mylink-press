@@ -15,35 +15,49 @@ database_url = os.environ.get('DATABASE_URL')
 if not database_url:
     raise RuntimeError("DATABASE_URL environment variable not set")
 
-# Parse da URL do banco de dados
 parsed_url = urlparse(database_url)
 if parsed_url.scheme == 'postgres':
     parsed_url = parsed_url._replace(scheme='postgresql+psycopg2')
 
 app.config['SQLALCHEMY_DATABASE_URI'] = parsed_url.geturl()
 
-# Inicialização de extensões
+# Inicialização de extensões DEPOIS da configuração
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# Modelos
+# Modelos DEVEM vir após a inicialização do db
 class User(UserMixin, db.Model):
+    __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True)
     password = db.Column(db.String(100))
     links = db.relationship('Link', backref='owner', lazy=True)
 
 class Link(db.Model):
+    __tablename__ = 'links'
     id = db.Column(db.Integer, primary_key=True)
     original_url = db.Column(db.String(500))
     custom_slug = db.Column(db.String(100), unique=True)
     clicks = db.Column(db.Integer, default=0)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+def create_tables():
+    with app.app_context():
+        db.create_all()
+        print("Tabelas criadas com sucesso!")
+
+# Garantir a criação das tabelas antes do primeiro request
+@app.before_first_request
+def initialize_database():
+    try:
+        create_tables()
+    except Exception as e:
+        print(f"Erro ao criar tabelas: {str(e)}")
 
 # Rotas
 @app.route('/')
@@ -128,6 +142,5 @@ def stats(slug):
     return render_template('stats.html', link=link)
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
+    create_tables()
     app.run(debug=False)
