@@ -1,32 +1,34 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, g
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, current_user
 from urllib.parse import urlparse
 import os
 
+# Configuração inicial do Flask
 app = Flask(__name__)
 
-# Configuração básica
+# Configurações básicas
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24))
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Configuração do Banco de Dados
+# Configuração do banco de dados
 database_url = os.environ.get('DATABASE_URL')
 if not database_url:
     raise RuntimeError("DATABASE_URL environment variable not set")
 
+# Parse e ajuste da URL do PostgreSQL
 parsed_url = urlparse(database_url)
 if parsed_url.scheme == 'postgres':
     parsed_url = parsed_url._replace(scheme='postgresql+psycopg2')
 
 app.config['SQLALCHEMY_DATABASE_URI'] = parsed_url.geturl()
 
-# Inicialização de extensões DEPOIS da configuração
+# Inicialização das extensões
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# Modelos DEVEM vir após a inicialização do db
+# Definição dos modelos
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -46,18 +48,21 @@ class Link(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+# Criação de tabelas
 def create_tables():
     with app.app_context():
-        db.create_all()
-        print("Tabelas criadas com sucesso!")
+        try:
+            db.create_all()
+            print("✅ Tabelas criadas com sucesso!")
+        except Exception as e:
+            print(f"❌ Erro ao criar tabelas: {str(e)}")
 
-# Garantir a criação das tabelas antes do primeiro request
-@app.before_first_request
+# Verificação de tabelas no primeiro request
+@app.before_request
 def initialize_database():
-    try:
+    if not app.config.get('TABLES_CREATED'):
         create_tables()
-    except Exception as e:
-        print(f"Erro ao criar tabelas: {str(e)}")
+        app.config['TABLES_CREATED'] = True
 
 # Rotas
 @app.route('/')
